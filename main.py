@@ -13,7 +13,7 @@ DATA_URL_FMT = (
     "year2={today.year}&month2={today.month}&day2={today.day}"
 )
 
-def load_data(network: str = "CO_ASOS", station: str = "DEN"):
+def load_data(network: str = "CO_ASOS", station: str = "DEN") -> pd.DataFrame:
     """Load data from Iowa Environment Mesonet ASOS."""
     today = datetime.datetime.today()
     url = DATA_URL_FMT.format(network=network, station=station, today=today)
