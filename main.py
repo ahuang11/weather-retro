@@ -4,6 +4,8 @@ import pandas as pd
 import hvplot.pandas
 import holoviews as hv
 import panel as pn
+from holoviews.selection import link_selections
+from scipy.stats import percentileofscore
 
 hv.extension("bokeh")
 pn.extension()
@@ -102,43 +104,115 @@ def plot_data(
     weather with a red line.
     """
     # prepare the titles and labels
-    select_df = select_df.assign(**{"decade": [
-        bin.left if not isinstance(bin, float) else bin
-        for bin in pd.cut(select_df.index.year, bins=range(1950, 2050, 10))
-    ]})
+    select_df = select_df.assign(
+        **{
+            "score": pd.cut(select_df.index.year, bins=range(1930, 2060, 20))
+        }
+    ).dropna(subset=[weather_var])
     weather_label = weather_var.replace("_", " ").title()
-    weather_df = select_df[weather_var].dropna()
+    station_row = load_station_df(network).query(f"stid == '{station}'")
+    station_label = station_row["station_name"].item().title()
+    weather_df = select_df[weather_var]
     title = (
-        f"{network}: {station}'s "
+        f"{network}: {station_label}'s "
         f"{date:%B %d}'s {weather_label} ({len(weather_df)} years)"
-    )
+    ).replace("_", " ")
     climo_hist = weather_df.hvplot.hist(
-        weather_var, title=title, xlabel=weather_label, ylabel="Number of Years"
+        weather_var, xlabel=weather_label, ylabel="Number of Years"
     )
 
     # highlight date
     weather_date = select_df.iloc[-1][weather_var]
 
+    # get average
     weather_average = weather_df.mean()
     average_line = hv.VLine(weather_average).opts(color="black")
-    average_text = hv.Text(
-        weather_average + 0.5, 1, f"Average"
-    ).opts(text_align="left")
+    average_text = hv.Text(weather_average + 0.5, 1, f"Average").opts(text_align="left")
 
     date_line = hv.VLine(weather_date).opts(color="brown")
     date_text = hv.Text(weather_date - 0.5, 3, f"{date:%Y}").opts(
         text_align="right", color="brown"
     )
 
-    weather_plot = (
-        climo_hist * average_line * average_text * date_line * date_text
+    # overlay
+    weather_plot = climo_hist * average_line * average_text * date_line * date_text
+
+    # get a kde plot
+    kde_plot = select_df.hvplot.kde(
+        weather_var, xlabel=weather_label, by="score"
     )
 
-    kde_plot = select_df.hvplot.kde(
-        weather_var, title=title, xlabel=weather_label, by="decade"
-    )
+    # table
     weather_table = weather_df.hvplot.table()
-    return (weather_plot + kde_plot + weather_table).cols(1)
+
+    # layout
+    min = weather_df.min()
+    min_idx = weather_df.idxmin()
+    min_number = pn.widgets.Number(
+        name=f"Min ({min_idx:%Y})",
+        value=min,
+        format="{value:.0f}",
+        title_size="15pt",
+        font_size="25pt",
+        width=150,
+    )
+    max = weather_df.max()
+    max_idx = weather_df.idxmax()
+    max_number = pn.widgets.Number(
+        name=f"Max ({max_idx:%Y})",
+        value=max,
+        format="{value:.0f}",
+        title_size="15pt",
+        font_size="25pt",
+        width=150,
+    )
+    avg = weather_df.mean()
+    avg_number = pn.widgets.Number(
+        name=f"Average",
+        value=avg,
+        format="{value:.0f}",
+        title_size="15pt",
+        font_size="25pt",
+        width=150,
+    )
+    median = weather_df.median()
+    median_number = pn.widgets.Number(
+        name=f"Median",
+        value=median,
+        format="{value:.0f}",
+        title_size="15pt",
+        font_size="25pt",
+        width=150,
+    )
+    value_number = pn.widgets.Number(
+        name=f"2023",
+        value=weather_date,
+        format="{value:.0f}",
+        title_size="15pt",
+        font_size="25pt",
+        width=150,
+    )
+    percentile = percentileofscore(weather_df, weather_date, kind="strict")
+    percentile_number = pn.widgets.Number(
+        name=f"Percentile ({date:%Y})",
+        value=percentile,
+        format="{value:.0f}%",
+        title_size="15pt",
+        font_size="25pt",
+        width=200,
+    )
+    stats_row = pn.Row(
+        percentile_number,
+        value_number,
+        median_number,
+        avg_number,
+        min_number,
+        max_number,
+        align="center",
+    )
+    layout = (weather_plot + kde_plot + weather_table).cols(1)
+    title_md = pn.pane.Markdown(f"# <center>{title}</center>")
+    return pn.Column(title_md, stats_row, layout, align="center")
 
 
 def update_dashboard(date, network, station, weather_var):
@@ -146,20 +220,18 @@ def update_dashboard(date, network, station, weather_var):
     df = load_data(date, network, station)
     preprocess_df = preprocess_data(df)
     select_df = select_data(date, preprocess_df)
-    weather_plot = plot_data(
-        date, network, station, select_df, weather_var
-    )
+    weather_plot = plot_data(date, network, station, select_df, weather_var)
     return weather_plot
 
 
 @pn.cache()
-def load_stations(network: str):
-    stations = pd.read_csv(NETWORK_URL_FMT.format(network=network))
-    return stations["stid"]
+def load_station_df(network: str):
+    station_df = pd.read_csv(NETWORK_URL_FMT.format(network=network))
+    return station_df
 
 
 def update_station(event):
-    stations = load_stations(event.new)
+    stations = load_station_df(event.new)["stid"]
     station_select.param.update(value=stations[0], options=list(stations))
 
 
