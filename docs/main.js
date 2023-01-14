@@ -47,6 +47,10 @@ from panel.io.pyodide import init_doc, write_doc
 
 init_doc()
 
+"""## Description
+
+Here we visualize the Iowa Environment Mesonet ASOS data.
+"""
 import datetime
 
 import pandas as pd
@@ -56,10 +60,8 @@ import panel as pn
 from holoviews.selection import link_selections
 from scipy.stats import percentileofscore
 
-hv.extension("bokeh")
-pn.extension()
 pd.set_option("display.max_columns", None)
-pn.config.sizing_mode = "stretch_width"
+pn.extension(sizing_mode="stretch_width")
 pn.param.ParamMethod.loading_indicator = True
 
 
@@ -103,6 +105,15 @@ WEATHER_VARS = [
     "max_wind_gust_kts",
     "srad_mj",
 ]
+
+@pn.cache
+def info(date: datetime, network: str, station: str):
+    data_url = DATA_URL_FMT.format(network=network, station=station, date=date)
+    network_url = NETWORK_URL_FMT.format(network=network)
+    return f"""
+    **Source Data**: [Weather]({data_url}), [Network]({network_url}), [States]({STATES_URL})"""
+    
+    
 
 
 @pn.cache()
@@ -167,7 +178,7 @@ def plot_data(
         f"{date:%B %d}'s {weather_label} ({len(weather_df)} years)"
     ).replace("_", " ")
     climo_hist = weather_df.hvplot.hist(
-        weather_var, xlabel=weather_label, ylabel="Number of Years"
+        weather_var, xlabel=weather_label, ylabel="Number of Years", responsive=True, height=300
     )
 
     # highlight date
@@ -188,7 +199,7 @@ def plot_data(
 
     # get a kde plot
     kde_plot = select_df.hvplot.kde(
-        weather_var, xlabel=weather_label, by="score"
+        weather_var, xlabel=weather_label, by="score", responsive=True, height=300
     )
 
     # table
@@ -261,7 +272,8 @@ def plot_data(
     )
     layout = (weather_plot + kde_plot + weather_table).cols(1)
     title_md = pn.pane.Markdown(f"# <center>{title}</center>")
-    return pn.Column(title_md, stats_row, layout, align="center")
+    info_md = info(date=date, network=network, station=station)
+    return pn.Column(title_md, stats_row, layout, info_md, align="center")
 
 
 def update_dashboard(date, network, station, weather_var):
@@ -306,9 +318,10 @@ plot = pn.bind(
 )
 
 # layout
-sidebar = pn.Column(date_picker, weather_var_select, network_select, station_select)
+sidebar = pn.Column(__doc__, "## Selections", date_picker, weather_var_select, network_select, station_select)
 main = pn.Column(plot)
 template = pn.template.FastListTemplate(
+    site="at.py", site_url="https://substack.com/profile/113579930-atpy",
     sidebar=sidebar, main=main, title="WeatherRetro"
 )
 template.servable()
